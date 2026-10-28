@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Create JPEG thumbnails from images uploaded to a private S3 bucket.
+Resources:
+  SourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-source-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration: {}
+  ThumbnailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-thumbs-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+  ThumbnailFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: python3.12
+    Properties:
+      CodeUri: src/
+      Handler: app.handler
+      Runtime: python3.12
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref ThumbnailBucket
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref SourceBucket
+        - S3WritePolicy:
+            BucketName: !Ref ThumbnailBucket
+      Events:
+        ImageCreated:
+          Type: S3
+          Properties:
+            Bucket: !Ref SourceBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: .jpg
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ThumbnailFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt SourceBucket.Arn
+      SourceAccount: !Ref AWS::AccountId
+Outputs:
+  SourceBucketName:
+    Value: !Ref SourceBucket
+  ThumbnailBucketName:
+    Value: !Ref ThumbnailBucket
